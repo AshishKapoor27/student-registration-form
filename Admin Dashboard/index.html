@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Simple Admin Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div>Admin Dashboard</div>
+    <button class="theme-toggle" id="toggleBtn">Switch Theme</button>
+  </header>
+
+  <aside>
+    <a href="#">Home</a>
+    <a href="#">Users</a>
+    <a href="#">Settings</a>
+  </aside>
+
+  <main>
+    <h2>Welcome!</h2>
+    <p>This is the main content area.</p>
+    <p>You can switch theme of this page.</p>
+  </main>
+
+  <footer>
+    &copy; 2025 Your Company
+  </footer>
+
+  <script>
+    const toggleBtn = document.getElementById('toggleBtn');
+    const body = document.body;
+
+    // Load saved theme from localStorage
+    if (localStorage.getItem('theme') === 'dark') {
+      body.classList.add('dark');
+    }
+
+    toggleBtn.addEventListener('click', () => {
+      body.classList.toggle('dark');
+      if (body.classList.contains('dark')) {
+        localStorage.setItem('theme', 'dark');
+      } else {
+        localStorage.setItem('theme', 'light');
+      }
+    });
+  </script>
+</body>
+</html>
