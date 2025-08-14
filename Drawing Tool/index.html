@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SVG Drawing Tool (Single File)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif;
+      color: #0f172a;
+      background: #f8fafc;
+    }
+    .toolbar {
+      position: sticky; top: 0; z-index: 10;
+      display: flex; justify-content: space-between; gap: 1rem;
+      padding: 0.75rem 1rem;
+      background: #ffffffcc; backdrop-filter: saturate(180%) blur(6px);
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .toolbar .group { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+    label { font-size: 0.95rem; display: inline-flex; align-items: center; gap: 0.4rem; }
+    input[type="number"] { width: 4rem; }
+    button {
+      padding: 0.5rem 0.9rem; border-radius: 10px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer;
+    }
+    button:hover { background: #f1f5f9; }
+    main { padding: 1rem; }
+    svg#canvas {
+      display: block; width: min(1200px, 96vw); height: auto; margin: 0 auto;
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
+      box-shadow: 0 6px 24px rgba(15, 23, 42, 0.06);
+    }
+    footer { text-align: center; padding: 1rem 0 2rem; color: #475569; font-size: 0.95rem; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <header class="toolbar">
+    <div class="group">
+      <label>Shape:
+        <select id="shapeSelect">
+          <option value="line">Line</option>
+          <option value="rect">Rectangle</option>
+        </select>
+      </label>
+      <label>Stroke:
+        <input type="color" id="strokeColor" value="#0f172a" />
+      </label>
+      <label>Width:
+        <input type="number" id="strokeWidth" min="1" max="20" value="3" />
+      </label>
+      <label id="fillWrap" class="hidden">Fill:
+        <input type="color" id="fillColor" value="#60a5fa" />
+      </label>
+      <label id="fillOpacityWrap" class="hidden">Fill Opacity:
+        <input type="range" id="fillOpacity" min="0" max="1" step="0.05" value="0.25" />
+      </label>
+    </div>
+    <div class="group">
+      <button id="clearBtn" title="Remove all shapes">Clear</button>
+      <button id="downloadBtn" title="Download SVG">Download SVG</button>
+    </div>
+  </header>
+
+  <main>
+    <svg id="canvas" width="100%" height="560" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <pattern id="smallGrid" width="25" height="25" patternUnits="userSpaceOnUse">
+          <path d="M 25 0 L 0 0 0 25" fill="none" stroke="#e5e7eb" stroke-width="1"/>
+        </pattern>
+        <pattern id="grid" width="100" height="100" patternUnits="userSpaceOnUse">
+          <rect width="100" height="100" fill="url(#smallGrid)"/>
+          <path d="M 100 0 L 0 0 0 100" fill="none" stroke="#cbd5e1" stroke-width="1"/>
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#grid)"/>
+      <g id="drawLayer"></g>
+    </svg>
+  </main>
+
+  <footer>
+    <p>Tip: Click and drag to draw. Release to finish. Change tools any time.</p>
+  </footer>
+
+  <script>
+    // --- DOM references ---
+    const svg = document.getElementById('canvas');
+    const layer = document.getElementById('drawLayer');
+
+    const shapeSelect = document.getElementById('shapeSelect');
+    const strokeColor = document.getElementById('strokeColor');
+    const strokeWidth = document.getElementById('strokeWidth');
+    const fillColor = document.getElementById('fillColor');
+    const fillOpacity = document.getElementById('fillOpacity');
+    const fillWrap = document.getElementById('fillWrap');
+    const fillOpacityWrap = document.getElementById('fillOpacityWrap');
+
+    const clearBtn = document.getElementById('clearBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    // --- State ---
+    let isDrawing = false;
+    let activeEl = null;
+    let startPoint = { x: 0, y: 0 };
+
+    // Show/hide fill controls depending on shape
+    function updateFillVisibility() {
+      const isRect = shapeSelect.value === 'rect';
+      fillWrap.classList.toggle('hidden', !isRect);
+      fillOpacityWrap.classList.toggle('hidden', !isRect);
+    }
+    updateFillVisibility();
+    shapeSelect.addEventListener('change', updateFillVisibility);
+
+    // Convert mouse position to SVG coordinates respecting viewBox
+    function svgPoint(evt) {
+      const pt = svg.createSVGPoint();
+      pt.x = evt.clientX;
+      pt.y = evt.clientY;
+      return pt.matrixTransform(svg.getScreenCTM().inverse());
+    }
+
+    // Create SVG element with namespace
+    function createSvgEl(name, attrs = {}) {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', name);
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+      return el;
+    }
+
+    // --- Mouse handlers ---
+    function onMouseDown(evt) {
+      if (evt.button !== 0) return; // left click only
+      isDrawing = true;
+      const { x, y } = svgPoint(evt);
+      startPoint = { x, y };
+
+      const stroke = strokeColor.value;
+      const width = Number(strokeWidth.value);
+
+      if (shapeSelect.value === 'line') {
+        activeEl = createSvgEl('line', {
+          x1: x, y1: y, x2: x, y2: y,
+          stroke,
+          'stroke-width': width,
+          'stroke-linecap': 'round',
+          'vector-effect': 'non-scaling-stroke'
+        });
+      } else {
+        activeEl = createSvgEl('rect', {
+          x: x, y: y, width: 0, height: 0,
+          stroke,
+          'stroke-width': width,
+          fill: fillColor.value,
+          'fill-opacity': fillOpacity.value,
+          'vector-effect': 'non-scaling-stroke'
+        });
+      }
+
+      layer.appendChild(activeEl);
+    }
+
+    function onMouseMove(evt) {
+      if (!isDrawing || !activeEl) return;
+      const { x, y } = svgPoint(evt);
+
+      if (shapeSelect.value === 'line') {
+        activeEl.setAttribute('x2', x);
+        activeEl.setAttribute('y2', y);
+      } else {
+        const rx = Math.min(x, startPoint.x);
+        const ry = Math.min(y, startPoint.y);
+        const rw = Math.abs(x - startPoint.x);
+        const rh = Math.abs(y - startPoint.y);
+        activeEl.setAttribute('x', rx);
+        activeEl.setAttribute('y', ry);
+        activeEl.setAttribute('width', rw);
+        activeEl.setAttribute('height', rh);
+      }
+    }
+
+    function onMouseUp() {
+      isDrawing = false;
+      activeEl = null;
+    }
+
+    // Attach events to the SVG
+    svg.addEventListener('mousedown', onMouseDown);
+    svg.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+
+    // Clear all shapes
+    clearBtn.addEventListener('click', () => {
+      while (layer.firstChild) layer.removeChild(layer.firstChild);
+    });
+
+    // Download SVG
+    downloadBtn.addEventListener('click', () => {
+      const clone = svg.cloneNode(true);
+      // Remove width/height so it scales from viewBox in editors
+      clone.removeAttribute('width');
+      clone.removeAttribute('height');
+
+      const serializer = new XMLSerializer();
+      const source = '<?xml version="1.0" encoding="UTF-8"?>\n' + serializer.serializeToString(clone);
+      const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'drawing.svg';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>
+
